@@ -13,6 +13,9 @@
   'description' => '全国の結婚式場を地図から検索できる投稿型マップ。見学会の混雑状況・写真付き口コミを確認できる。',
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) !!}
 </script>
+{{-- 投稿が0件のときは itemListElement が空になる。空のItemListはGoogleに
+     無効な項目として扱われるため、1件以上あるときだけ出力する。 --}}
+@if ($venues->isNotEmpty())
 <script type="application/ld+json">
 {!! json_encode([
   '@@context' => 'https://schema.org',
@@ -27,6 +30,7 @@
   })->all(),
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) !!}
 </script>
+@endif
 @endpush
 
 @section('content')
