@@ -1,0 +1,68 @@
+# LINE連携の設定を本番の .env に反映する。手動実行のみ。
+#
+# ・LINE_LOGIN_REDIRECT_URI はドメインから決まるので、ここで確定させる。
+#   これまでは空で、コード側の既定が効いて http://localhost:8000/line/callback
+#   という値で LINE に飛んでいた。
+# ・チャネルID・シークレット類は GitHub のシークレットから読む。
+#   未登録のうちは空のまま書かれるが、画面側は
+#   config('services.line.login_channel_id') で分岐していて
+#   押せないボタンのままなので、利用者には影響しない。
+#
+# .env 全体は書き換えない（DBやその他の設定を壊さないため）。
+name: Sync LINE env
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set LINE settings in production .env
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          LOGIN_ID: ${{ secrets.LINE_LOGIN_CHANNEL_ID }}
+          LOGIN_SECRET: ${{ secrets.LINE_LOGIN_CHANNEL_SECRET }}
+          MSG_TOKEN: ${{ secrets.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN }}
+          MSG_SECRET: ${{ secrets.LINE_MESSAGING_CHANNEL_SECRET }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: 10022
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: LOGIN_ID,LOGIN_SECRET,MSG_TOKEN,MSG_SECRET
+          script: |
+            set -e
+            APP=~/kekkonshikijo-map.jp/app
+            cd "$APP"
+            cp .env ".env.bak.$(date +%Y%m%d%H%M%S)"
+
+            set_env() {
+              key="$1"; val="$2"
+              if grep -q "^${key}=" .env; then
+                # 値に / が含まれても壊れないよう区切りを | にする
+                sed -i "s|^${key}=.*|${key}=${val}|" .env
+              else
+                printf '%s=%s\n' "$key" "$val" >> .env
+              fi
+            }
+
+            set_env LINE_LOGIN_REDIRECT_URI "https://kekkonshikijo-map.jp/line/callback"
+            set_env LINE_LOGIN_CHANNEL_ID "$LOGIN_ID"
+            set_env LINE_LOGIN_CHANNEL_SECRET "$LOGIN_SECRET"
+            set_env LINE_MESSAGING_CHANNEL_ACCESS_TOKEN "$MSG_TOKEN"
+            set_env LINE_MESSAGING_CHANNEL_SECRET "$MSG_SECRET"
+
+            PHP=$(command -v php8.3 || command -v php || echo /opt/php-8.3.30/bin/php)
+            $PHP artisan config:clear
+            $PHP artisan view:clear
+
+            echo "--- 反映確認（値は出さない） ---"
+            for k in LINE_LOGIN_REDIRECT_URI LINE_LOGIN_CHANNEL_ID LINE_LOGIN_CHANNEL_SECRET LINE_MESSAGING_CHANNEL_ACCESS_TOKEN LINE_MESSAGING_CHANNEL_SECRET; do
+              v=$(grep "^${k}=" .env | cut -d= -f2- | tr -d '\r\n" ')
+              if [ "$k" = "LINE_LOGIN_REDIRECT_URI" ]; then
+                echo "  $k=$v"
+              else
+                [ -n "$v" ] && echo "  $k=設定あり" || echo "  $k=空（シークレット未登録）"
+              fi
+            done
