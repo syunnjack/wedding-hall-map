@@ -5,80 +5,35 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+# 以前は rsync でアプリ本体ごと転送し、その場で migrate/seed まで走らせていたが、
+# 必要なシークレット（APP_KEY など）が無く一度も成功しないまま失敗し続けていた。
+# また --delete に public_html の除外が無く、有効化するとドキュメントルートごと
+# 消える構成だった。他の同型サイトと同じ、public/ だけを送る形に戻す。
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.3'
-          tools: composer
-          extensions: sqlite3, pdo_sqlite
-
-      - name: Install PHP dependencies
-        run: composer install --no-dev --optimize-autoloader --no-interaction
-
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Build frontend assets
-        run: |
-          npm install
-          npm run build
+      - name: Install dependencies
+        run: npm install
 
-      - name: Write production .env
-        run: |
-          cat > .env <<EOF
-          APP_NAME="結婚式場マップ"
-          APP_ENV=production
-          APP_KEY=${{ secrets.APP_KEY }}
-          APP_DEBUG=false
-          APP_URL=https://kekkonshikijo-map.jp
-          APP_LOCALE=ja
-          APP_FALLBACK_LOCALE=ja
-          DB_CONNECTION=sqlite
-          LOG_CHANNEL=stack
-          LOG_LEVEL=error
-          CACHE_STORE=file
-          SESSION_DRIVER=file
-          QUEUE_CONNECTION=sync
-          LINE_CHANNEL_SECRET=${{ secrets.LINE_CHANNEL_SECRET }}
-          LINE_CHANNEL_ACCESS_TOKEN=${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
-          LINE_LOGIN_CHANNEL_ID=${{ secrets.LINE_LOGIN_CHANNEL_ID }}
-          LINE_LOGIN_CHANNEL_SECRET=${{ secrets.LINE_LOGIN_CHANNEL_SECRET }}
-          LINE_LOGIN_REDIRECT_URI=${{ secrets.LINE_LOGIN_REDIRECT_URI }}
-          EOF
+      - name: Build
+        run: npm run build
 
-      - name: Deploy app via rsync over SSH
-        uses: burnett01/rsync-deployments@7.0.1
+      - name: Deploy to Xserver via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
-          switches: -avzr --delete --exclude=".git" --exclude=".github" --exclude="node_modules" --exclude="tests" --exclude="database/database.sqlite" --exclude="storage/app" --exclude="storage/logs" --exclude="storage/framework"
-          path: ./
-          remote_path: ${{ secrets.DEPLOY_PATH }}
-          remote_host: ${{ secrets.SSH_HOST }}
-          remote_port: '10022'
-          remote_user: ${{ secrets.SSH_USERNAME }}
-          remote_key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Run migrations and seed
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          port: 10022
           username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            set -e
-            cd "${{ secrets.DEPLOY_PATH }}"
-            PHP=/opt/php-8.3.30/bin/php
-            mkdir -p database storage/framework/cache storage/framework/sessions storage/framework/views storage/logs storage/app
-            touch database/database.sqlite
-            chmod -R 775 storage database
-            $PHP artisan migrate --force
-            $PHP artisan db:seed --force 2>&1 || echo "Seeder warning (non-fatal)"
-            $PHP artisan config:cache
-            $PHP artisan route:cache
-            $PHP artisan view:cache
+          server: ${{ secrets.SSH_HOST }}
+          port: 10022
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          local_path: './public/*'
+          remote_path: '/home/xs501620/kekkonshikijo-map.jp/public_html/'
+          sftp_only: true
+          delete_remote_files: false
