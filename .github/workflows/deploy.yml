@@ -117,5 +117,7 @@ jobs:
             $PHP artisan config:clear
             # OpenStreetMap 由来の会場。(source, source_ref) で upsert するので毎回流してよい。
             $PHP artisan db:seed --class=OsmVenueSeeder --force
+            # 運営会社の公式サイト由来の会場
+            $PHP artisan db:seed --class=ChainVenueSeeder --force
             echo "--- 掲載件数 ---"
             $PHP artisan tinker --execute="echo \App\Models\Venue::count();"

@@ -108,7 +108,8 @@
   </div>
 
   <p class="text-muted small">
-    会場の名称・位置は OpenStreetMap のデータをもとにしています（© OpenStreetMap contributors、ODbL 1.0）。
+    会場の名称・位置は、運営会社の公式サイトに掲載されている内容と、OpenStreetMap のデータ
+    （© OpenStreetMap contributors、ODbL 1.0）をもとにしています。
     見学会の混雑状況と口コミは利用者の投稿で、当サイトでは内容を確認していません。
     実際の挙式の可否、料金、空き状況は各会場へお問い合わせください。
   </p>

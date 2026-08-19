@@ -158,7 +158,9 @@
   </div>
 
   <p class="text-muted small mt-4">
-    @if($venue->is_from_osm)
+    @if($venue->source === 'official')
+      この会場の名称・住所・電話番号は、運営会社の公式サイトに掲載されている内容です（{{ \Illuminate\Support\Str::before($venue->source_ref, '/') }}）。
+    @elseif($venue->is_from_osm)
       この会場の名称・位置は <a href="https://www.openstreetmap.org/{{ $venue->source_ref }}" target="_blank" rel="noopener">OpenStreetMap</a> のデータをもとにしています（© OpenStreetMap contributors、ODbL 1.0）。
     @else
       この会場は利用者の投稿です。内容は投稿時点のもので、当サイトでは確認していません。

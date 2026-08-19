@@ -10,5 +10,6 @@ class DatabaseSeeder extends Seeder
     {
         // 掲載する会場は、出典をたどれるものだけにする。
         $this->call(OsmVenueSeeder::class);
+        $this->call(ChainVenueSeeder::class);
     }
 }
