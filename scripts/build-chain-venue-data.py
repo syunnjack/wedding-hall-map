@@ -8,6 +8,8 @@
   - ベストブライダル       https://www.bestbridal.co.jp/facilities/
   - アニヴェルセル         https://www.anniversaire.co.jp/halls/
   - アイ・ケイ・ケイ       https://lalachance.ikk-wed.jp/ （ララシャンス／迎賓館など各会場の公式サイト）
+  - オンザページ（旧ノバレーゼ・エスクリ）
+                           https://produce.novarese.jp/novarese-bridalsalon/venue/
 
 使い方: python scripts/build-chain-venue-data.py
   → database/data/venues-chain.json を書き出す
@@ -149,21 +151,41 @@ def parse_anniversaire() -> list[dict]:
 
 BRAND_WORDS = ('ララシャンス', 'ラ・シャンス', 'アーククラブ', '迎賓館')
 # 名前の前に付く宣伝文を切るための助詞など
-STOP_CHARS = set('なのがではをにへとやもら、。「」（）()｜|・ 　！？')
+STOP_CHARS = set('なのがではをにへとやもら、。「」（）()｜|！？-‐―–—')
 
 
-def venue_name_from(heading: str) -> str | None:
-    """「…結婚式場ならララシャンスKOBE」のような宣伝文から、会場名だけを取り出す。"""
-    positions = [heading.find(word) for word in BRAND_WORDS if word in heading]
-    if not positions:
+def venue_name_from(title: str) -> str | None:
+    """会場ページのタイトルから会場名を取り出す。
+
+    「【公式】ララシャンス博多の森 | 福岡市博多区の…」のように公式表記があるものは
+    その直後、無いものは宣伝文が前に付くので、ブランド名を含む区切りを選ぶ。
+    """
+    official = title.startswith('【公式】')
+    heading = re.sub(r'^【公式】', '', title).strip()
+    segments = [segment.strip() for segment in re.split(r'[|｜]', heading) if segment.strip()]
+
+    if not segments:
         return None
 
-    start = min(positions)
-    # ブランド名の前に続く固有名詞（例: キャナルサイド）は残し、助詞が出たら切る
-    while start > 0 and heading[start - 1] not in STOP_CHARS:
-        start -= 1
+    if official:
+        chosen = segments[0]
+    else:
+        branded = [segment for segment in segments if any(word in segment for word in BRAND_WORDS)]
+        chosen = branded[0] if branded else segments[-1]
 
-    return heading[start:].strip() or None
+    # 「…結婚式場ならララシャンスKOBE」のように前に宣伝文が付く場合は、そこを落とす
+    positions = [chosen.find(word) for word in BRAND_WORDS if word in chosen]
+    if positions:
+        start = min(positions)
+        while start > 0 and chosen[start - 1] not in STOP_CHARS:
+            start -= 1
+        chosen = chosen[start:]
+
+    # 「The 迎賓館 偕楽園 別邸 茨城県水戸市の結婚式場・ウエディング」のように、
+    # 区切り記号なしで説明が続く場合は、その手前で切る。
+    chosen = re.split(r'\s+(?=[^\s]*(?:結婚式|ウエディング|ウェディング))', chosen)[0]
+    chosen = chosen.strip(' 　-‐―–—')
+    return chosen or None
 
 
 def parse_ikk() -> list[dict]:
@@ -188,15 +210,25 @@ def parse_ikk() -> list[dict]:
         if not title:
             continue
 
-        # タイトルは「【公式】ララシャンスHIROSHIMA迎賓館 | 広島の結婚式場…」のほか、
-        # 「〇〇駅から徒歩30秒の…結婚式場」のような宣伝文のこともある。
-        # 会場名が読み取れないものは載せない（宣伝文を施設名にしない）。
-        heading = re.sub(r'^【公式】', '', strip_tags(title.group(1)))
-        heading = re.split(r'[|｜]', heading)[0].strip()
-        name = venue_name_from(heading)
+        # タイトルから会場名を取り出す（宣伝文を施設名にしない）。
+        name = venue_name_from(strip_tags(title.group(1)))
 
         text = strip_tags(re.sub(r'<script.*?</script>', '', html, flags=re.S))
         address_match = re.search(r'(〒\s?\d{3}-?\d{4}\s*[^\s]+)', text)
+
+        # トップに住所が無い会場は、アクセスのページを見る
+        if not address_match:
+            for suffix in ('access/', 'access.php', 'wedding-access.php'):
+                access_url = re.sub(r'[^/]*$', '', url) + suffix
+                try:
+                    access_html = cached(f'{slug}-{suffix.replace("/", "").replace(".", "-")}', access_url)
+                except Exception:
+                    continue
+                access_text = strip_tags(re.sub(r'<script.*?</script>', '', access_html, flags=re.S))
+                address_match = re.search(r'(〒\s?\d{3}-?\d{4}\s*[^\s]+)', access_text)
+                if address_match:
+                    text = access_text
+                    break
         if not name or not address_match:
             continue
 
@@ -210,6 +242,55 @@ def parse_ikk() -> list[dict]:
             'area': prefecture,
             'phone': phone.group(1) if phone else None,
             'operator': 'アイ・ケイ・ケイ',
+            'sourceUrl': url,
+        })
+
+    return venues
+
+
+NOVARESE_LIST = 'https://produce.novarese.jp/novarese-bridalsalon/venue/'
+
+
+def find_address(html: str) -> str | None:
+    text = strip_tags(re.sub(r'<script.*?</script>', '', html, flags=re.S))
+    match = re.search(r'(〒\s?\d{3}-?\d{4}\s*[^\s]+)', text)
+    return match.group(1) if match else None
+
+
+def parse_novarese() -> list[dict]:
+    """オンザページ（旧ノバレーゼ・エスクリ）。一覧に会場名と都道府県、各会場サイトへのリンクがある。"""
+    index = cached('novarese', NOVARESE_LIST)
+    entries = re.findall(
+        r'<li><a href="(https?://[^"]+)"[^>]*>.*?<p><span>\[([^\]]+)\]</span>([^<]+)</p>',
+        index, re.S)
+
+    venues = []
+    for url, prefecture_short, name in entries:
+        name = name.strip()
+        slug = re.sub(r'[^a-z0-9]+', '-', url.split('//')[-1]).strip('-')[:40]
+
+        address = None
+        for candidate in (url, url.rstrip('/') + '/access/'):
+            try:
+                address = find_address(cached(f'novarese-{slug}', candidate)
+                                       if candidate == url else cached(f'novarese-{slug}-access', candidate))
+            except Exception:
+                address = None
+            if address:
+                break
+
+        if not address:
+            print(f'  住所が見つからない会場: {name}', flush=True)
+            continue
+
+        postal, prefecture, plain = split_address(address)
+        venues.append({
+            'name': name,
+            'address': plain,
+            'postalCode': postal,
+            'area': prefecture,
+            'phone': None,
+            'operator': 'オンザページ（旧ノバレーゼ・エスクリ）',
             'sourceUrl': url,
         })
 
@@ -244,7 +325,7 @@ def geocode(venues: list[dict]) -> None:
 
 
 def main() -> None:
-    venues = parse_bestbridal() + parse_anniversaire() + parse_ikk()
+    venues = parse_bestbridal() + parse_anniversaire() + parse_ikk() + parse_novarese()
     print(f'公式サイトから{len(venues)}会場', flush=True)
 
     geocode(venues)
