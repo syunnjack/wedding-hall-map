@@ -1,7 +1,16 @@
 @extends('layouts.plain')
 
-@section('title', config('app.name') . ' | 現在地から探す・見学会の混雑がわかる結婚式場マップ')
-@section('description', '全国の結婚式場を地図から検索できる投稿型マップです。現在地から近い会場をワンタップで見つけられ、見学会の混雑状況・写真付き口コミをリアルタイムで確認できます。')
+@php
+    $pageTitle = $area
+        ? $area . 'の結婚式場' . number_format($total) . '会場｜' . config('app.name', '結婚式場マップ')
+        : config('app.name', '結婚式場マップ') . ' | 全国の結婚式場を地図から探す';
+    $pageDescription = $area
+        ? $area . 'の結婚式場' . number_format($total) . '会場を、地図と一覧から探せます。見学会の混雑状況と口コミは利用者の投稿です。'
+        : '全国' . number_format($total) . '会場の結婚式場を地図から探せます。現在地から近い会場を調べたり、見学会の混雑状況を確認できます。';
+@endphp
+
+@section('title', $pageTitle)
+@section('description', $pageDescription)
 
 @push('structured-data')
 <script type="application/ld+json">
@@ -36,8 +45,17 @@
 @section('content')
 <div class="container my-4">
   <div class="text-center mb-4">
-    <h1 class="fw-bold h3">💒 結婚式場マップ</h1>
-    <p class="text-muted">現在地から近い会場をすぐ見つける・見学会の混雑がわかる地図</p>
+    @if($area)
+      <nav aria-label="パンくず" class="small mb-2">
+        <a href="{{ route('venues.index') }}">結婚式場マップ</a>
+        <span class="text-muted mx-1">/</span><span class="text-muted">{{ $area }}</span>
+      </nav>
+      <h1 class="fw-bold h3">{{ $area }}の結婚式場</h1>
+      <p class="text-muted">{{ number_format($total) }}会場を掲載しています。見学会の混雑と口コミは利用者の投稿です。</p>
+    @else
+      <h1 class="fw-bold h3">💒 結婚式場マップ</h1>
+      <p class="text-muted">全国{{ number_format($total) }}会場から、現在地や都道府県で探せます。</p>
+    @endif
     <a href="{{ route('venues.create') }}" class="btn btn-wedding shadow-sm px-4">➕ 結婚式場を投稿</a>
   </div>
 
@@ -46,22 +64,24 @@
   </div>
   <p id="locateMessage" class="text-center text-muted small mb-3"></p>
 
-  <div id="map" data-venues="{{ $venues->map(fn ($v) => ['id' => $v->id, 'name' => $v->name, 'area' => $v->area, 'lat' => $v->lat, 'lng' => $v->lng])->toJson() }}" style="height: 360px;" class="rounded shadow-sm border mb-4"></div>
+  @php
+      $mapVenues = $venues->getCollection()->map(fn ($v) => [
+          'id' => $v->id, 'name' => $v->name, 'area' => $v->area, 'lat' => $v->lat, 'lng' => $v->lng,
+      ])->values();
+  @endphp
+  <div id="map" data-venues="{{ $mapVenues->toJson() }}" style="height: 360px;" class="rounded shadow-sm border mb-4"></div>
 
-  <form method="GET" action="{{ route('venues.index') }}" class="row g-2 mb-4">
-    <div class="col-md-4">
-      <label class="form-label">エリア</label>
-      <select name="area" class="form-select">
-        <option value="">すべて</option>
-        @foreach($areas as $area)
-          <option value="{{ $area }}" @selected(request('area') == $area)>{{ $area }}</option>
-        @endforeach
-      </select>
-    </div>
-    <div class="col-md-2 align-self-end">
-      <button type="submit" class="btn btn-outline-primary w-100">絞り込む</button>
-    </div>
-  </form>
+  @if($areaCounts->isNotEmpty())
+    <h2 class="h6">都道府県から探す</h2>
+    <p class="d-flex flex-wrap gap-2 mb-4">
+      @foreach($areaCounts as $row)
+        <a href="{{ route('venues.area', $row['slug']) }}"
+           class="btn btn-sm {{ $areaSlug === $row['slug'] ? 'btn-primary' : 'btn-outline-secondary' }}">
+          {{ $row['area'] }} <span class="text-muted">{{ number_format($row['total']) }}</span>
+        </a>
+      @endforeach
+    </p>
+  @endif
 
   <div class="row" id="venueList">
     @forelse($venues as $venue)
@@ -82,6 +102,16 @@
       <p class="text-muted">該当する結婚式場がありません。</p>
     @endforelse
   </div>
+
+  <div class="d-flex justify-content-center my-3">
+    {{ $venues->onEachSide(1)->links() }}
+  </div>
+
+  <p class="text-muted small">
+    会場の名称・位置は OpenStreetMap のデータをもとにしています（© OpenStreetMap contributors、ODbL 1.0）。
+    見学会の混雑状況と口コミは利用者の投稿で、当サイトでは内容を確認していません。
+    実際の挙式の可否、料金、空き状況は各会場へお問い合わせください。
+  </p>
 </div>
 @endsection
 

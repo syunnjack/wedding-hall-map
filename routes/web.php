@@ -21,6 +21,9 @@ Route::post('/venues/{venue}/document-request', [DocumentRequestController::clas
 Route::view('/thanks', 'venues.thanks')->name('venues.thanks');
 
 Route::view('/about', 'about')->name('about');
+Route::get('/area/{areaSlug}', [VenueController::class, 'area'])
+    ->whereAlpha('areaSlug')
+    ->name('venues.area');
 Route::get('/sitemap.xml', [VenueController::class, 'sitemap'])->name('sitemap');
 
 // LINE連携（お気に入り式場の見学会混雑状況通知／資料請求受付）

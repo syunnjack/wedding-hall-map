@@ -156,6 +156,15 @@
       </div>
     </div>
   </div>
+
+  <p class="text-muted small mt-4">
+    @if($venue->is_from_osm)
+      この会場の名称・位置は <a href="https://www.openstreetmap.org/{{ $venue->source_ref }}" target="_blank" rel="noopener">OpenStreetMap</a> のデータをもとにしています（© OpenStreetMap contributors、ODbL 1.0）。
+    @else
+      この会場は利用者の投稿です。内容は投稿時点のもので、当サイトでは確認していません。
+    @endif
+    見学会の混雑状況と口コミは利用者の投稿です。挙式の可否や料金は、必ず会場へ直接ご確認ください。
+  </p>
 </div>
 @endsection
 

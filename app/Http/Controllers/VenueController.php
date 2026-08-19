@@ -10,18 +10,68 @@ use Illuminate\Http\Request;
 
 class VenueController extends Controller
 {
+    /** 1ページに載せる会場の数。 */
+    private const PER_PAGE = 60;
+
     public function index(Request $request)
     {
-        $query = Venue::query();
-
+        // 旧URL（/?area=東京都）は都道府県ページへ送る。
         if ($request->filled('area')) {
-            $query->where('area', $request->input('area'));
+            $slug = Venue::slugForArea((string) $request->input('area'));
+
+            if ($slug !== null) {
+                return redirect()->route('venues.area', ['areaSlug' => $slug], 301);
+            }
         }
 
-        $venues = $query->latest()->get();
-        $areas = Venue::query()->whereNotNull('area')->distinct()->pluck('area');
+        return view('venues.index', [
+            'venues' => Venue::query()->latest()->paginate(self::PER_PAGE),
+            'areaCounts' => $this->areaCounts(),
+            'area' => null,
+            'areaSlug' => null,
+            'total' => Venue::count(),
+        ]);
+    }
 
-        return view('venues.index', compact('venues', 'areas'));
+    public function area(string $areaSlug)
+    {
+        $area = Venue::areaForSlug($areaSlug);
+
+        if ($area === null) {
+            abort(404);
+        }
+
+        $venues = Venue::query()->where('area', $area)->orderBy('name')->paginate(self::PER_PAGE);
+
+        if ($venues->total() === 0) {
+            abort(404);
+        }
+
+        return view('venues.index', [
+            'venues' => $venues,
+            'areaCounts' => $this->areaCounts(),
+            'area' => $area,
+            'areaSlug' => $areaSlug,
+            'total' => $venues->total(),
+        ]);
+    }
+
+    /** 都道府県ごとの掲載件数（多い順）。 */
+    private function areaCounts()
+    {
+        return Venue::query()
+            ->selectRaw('area, COUNT(*) as total')
+            ->whereNotNull('area')
+            ->groupBy('area')
+            ->orderByDesc('total')
+            ->get()
+            ->map(fn ($row) => [
+                'area' => $row->area,
+                'slug' => Venue::slugForArea($row->area),
+                'total' => (int) $row->total,
+            ])
+            ->filter(fn (array $row) => $row['slug'] !== null)
+            ->values();
     }
 
     public function create()
@@ -138,7 +188,15 @@ class VenueController extends Controller
     public function sitemap()
     {
         $venues = Venue::select('id', 'updated_at')->get();
-        $xml = view('sitemap', compact('venues'))->render();
+        $areaSlugs = Venue::query()
+            ->whereNotNull('area')
+            ->distinct()
+            ->pluck('area')
+            ->map(fn (string $area) => Venue::slugForArea($area))
+            ->filter()
+            ->values();
+
+        $xml = view('sitemap', compact('venues', 'areaSlugs'))->render();
 
         return response($xml, 200)->header('Content-Type', 'application/xml');
     }

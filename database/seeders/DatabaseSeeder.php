@@ -8,6 +8,7 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        $this->call(VenueSeeder::class);
+        // 掲載する会場は、出典をたどれるものだけにする。
+        $this->call(OsmVenueSeeder::class);
     }
 }

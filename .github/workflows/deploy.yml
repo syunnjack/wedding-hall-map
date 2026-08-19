@@ -61,3 +61,61 @@ jobs:
           remote_path: '/home/xs501620/kekkonshikijo-map.jp/app/resources/'
           sftp_only: true
           delete_remote_files: false
+
+      # ビューだけでなくアプリ本体も届ける。以前は public/ と resources/ しか
+      # 送っておらず、コントローラやシーダーの変更が本番に反映されなかった。
+      - name: Upload app code via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        with:
+          username: ${{ secrets.SSH_USERNAME }}
+          server: ${{ secrets.SSH_HOST }}
+          port: 10022
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          local_path: './app/*'
+          remote_path: '/home/xs501620/kekkonshikijo-map.jp/app/app/'
+          sftp_only: true
+          delete_remote_files: false
+
+      - name: Upload routes via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        with:
+          username: ${{ secrets.SSH_USERNAME }}
+          server: ${{ secrets.SSH_HOST }}
+          port: 10022
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          local_path: './routes/*'
+          remote_path: '/home/xs501620/kekkonshikijo-map.jp/app/routes/'
+          sftp_only: true
+          delete_remote_files: false
+
+      - name: Upload database files via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        with:
+          username: ${{ secrets.SSH_USERNAME }}
+          server: ${{ secrets.SSH_HOST }}
+          port: 10022
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          local_path: './database/*'
+          remote_path: '/home/xs501620/kekkonshikijo-map.jp/app/database/'
+          sftp_only: true
+          delete_remote_files: false
+
+      - name: Migrate, load venues and refresh caches
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: 10022
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd ~/kekkonshikijo-map.jp/app
+            PHP=$(command -v php8.3 || command -v php || echo /opt/php-8.3.30/bin/php)
+            $PHP artisan migrate --force
+            $PHP artisan route:clear
+            $PHP artisan view:clear
+            $PHP artisan config:clear
+            # OpenStreetMap 由来の会場。(source, source_ref) で upsert するので毎回流してよい。
+            $PHP artisan db:seed --class=OsmVenueSeeder --force
+            echo "--- 掲載件数 ---"
+            $PHP artisan tinker --execute="echo \App\Models\Venue::count();"
