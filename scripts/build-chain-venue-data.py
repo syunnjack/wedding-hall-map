@@ -7,6 +7,7 @@
 対応している会社:
   - ベストブライダル       https://www.bestbridal.co.jp/facilities/
   - アニヴェルセル         https://www.anniversaire.co.jp/halls/
+  - アイ・ケイ・ケイ       https://lalachance.ikk-wed.jp/ （ララシャンス／迎賓館など各会場の公式サイト）
 
 使い方: python scripts/build-chain-venue-data.py
   → database/data/venues-chain.json を書き出す
@@ -146,6 +147,75 @@ def parse_anniversaire() -> list[dict]:
     return venues
 
 
+BRAND_WORDS = ('ララシャンス', 'ラ・シャンス', 'アーククラブ', '迎賓館')
+# 名前の前に付く宣伝文を切るための助詞など
+STOP_CHARS = set('なのがではをにへとやもら、。「」（）()｜|・ 　！？')
+
+
+def venue_name_from(heading: str) -> str | None:
+    """「…結婚式場ならララシャンスKOBE」のような宣伝文から、会場名だけを取り出す。"""
+    positions = [heading.find(word) for word in BRAND_WORDS if word in heading]
+    if not positions:
+        return None
+
+    start = min(positions)
+    # ブランド名の前に続く固有名詞（例: キャナルサイド）は残し、助詞が出たら切る
+    while start > 0 and heading[start - 1] not in STOP_CHARS:
+        start -= 1
+
+    return heading[start:].strip() or None
+
+
+def parse_ikk() -> list[dict]:
+    """アイ・ケイ・ケイ。ブランドサイトから会場サイトをたどり、各サイトの住所を読む。"""
+    index = cached('ikk', 'https://lalachance.ikk-wed.jp/')
+    urls = sorted({
+        url for url in re.findall(
+            r'<a[^>]+href="(https?://www\.ikk-wed\.jp/[^"]+)"[^>]*>(?:(?!</a>).)*?会場WEBサイトを見る',
+            index, re.S)
+    })
+
+    venues = []
+    for url in urls:
+        slug = re.sub(r'[^a-z0-9]+', '-', url.split('ikk-wed.jp/')[-1]).strip('-') or 'top'
+        try:
+            html = cached(f'ikk-{slug}', url)
+        except Exception as error:
+            print(f'  会場サイト取得に失敗 {url} {error}', flush=True)
+            continue
+
+        title = re.search(r'<title>(.*?)</title>', html, re.S)
+        if not title:
+            continue
+
+        # タイトルは「【公式】ララシャンスHIROSHIMA迎賓館 | 広島の結婚式場…」のほか、
+        # 「〇〇駅から徒歩30秒の…結婚式場」のような宣伝文のこともある。
+        # 会場名が読み取れないものは載せない（宣伝文を施設名にしない）。
+        heading = re.sub(r'^【公式】', '', strip_tags(title.group(1)))
+        heading = re.split(r'[|｜]', heading)[0].strip()
+        name = venue_name_from(heading)
+
+        text = strip_tags(re.sub(r'<script.*?</script>', '', html, flags=re.S))
+        address_match = re.search(r'(〒\s?\d{3}-?\d{4}\s*[^\s]+)', text)
+        if not name or not address_match:
+            continue
+
+        postal, prefecture, address = split_address(address_match.group(1))
+        phone = re.search(r'(0120-[\d-]+|0\d{1,4}-\d{1,4}-\d{4})', text)
+
+        venues.append({
+            'name': name,
+            'address': address,
+            'postalCode': postal,
+            'area': prefecture,
+            'phone': phone.group(1) if phone else None,
+            'operator': 'アイ・ケイ・ケイ',
+            'sourceUrl': url,
+        })
+
+    return venues
+
+
 def geocode(venues: list[dict]) -> None:
     cache_path = CACHE / 'geocode-chain.json'
     cache = json.loads(cache_path.read_text(encoding='utf-8')) if cache_path.exists() else {}
@@ -174,7 +244,7 @@ def geocode(venues: list[dict]) -> None:
 
 
 def main() -> None:
-    venues = parse_bestbridal() + parse_anniversaire()
+    venues = parse_bestbridal() + parse_anniversaire() + parse_ikk()
     print(f'公式サイトから{len(venues)}会場', flush=True)
 
     geocode(venues)
